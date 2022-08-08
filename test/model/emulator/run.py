@@ -41,13 +41,14 @@ def build_executable():
         print("make failed!")
         sys.exit(1)
 
-
-def run_emulator(ranks: int, log_level: int, start_port: int, use_udp: bool, kernel_loopback: bool):
+def run_emulator(ranks: int, log_level: int, start_port: int, use_udp: bool, kernel_loopback: bool, oversubscribe: bool, hostfile: Path):
     env = os.environ.copy()
     env['LOG_LEVEL'] = str(log_level)
-    args = ['mpirun', '-np', str(ranks), '--tag-output', str(executable),
-            'udp' if use_udp else 'tcp', str(start_port), "loopback" if kernel_loopback else ""]
-    print(' '.join(args))
+    args = ['mpirun', '-np', str(ranks), '--oversubscribe' if oversubscribe else '', f'--hostfile {hostfile}' if hostfile else '', '--tag-output', str(executable),
+            'udp' if use_udp else 'tcp', str(start_port), 'loopback' if kernel_loopback else '']
+
+    args = ' '.join(args).split() #remove withspaces
+    print(' '.join(args)) #print the final mpirun command
     with subprocess.Popen(args, cwd=cwd, env=env,
                           stderr=subprocess.DEVNULL) as p:
         try:
@@ -72,7 +73,7 @@ def run_emulator(ranks: int, log_level: int, start_port: int, use_udp: bool, ker
 
 
 def main(ranks: int, log_level: int, start_port: int,
-         use_udp: bool, kernel_loopback: bool, build: bool):
+         use_udp: bool, kernel_loopback: bool, build: bool, oversubscribe: bool, hostfile: Path):
     if not build and not executable.exists():
         print(f"Executable {executable} does not exists!")
         sys.exit(1)
@@ -84,7 +85,7 @@ def main(ranks: int, log_level: int, start_port: int,
         build_executable()
 
     print("Starting emulator...")
-    run_emulator(ranks, log_level, start_port, use_udp, kernel_loopback)
+    run_emulator(ranks, log_level, start_port, use_udp, kernel_loopback, oversubscribe, hostfile)
 
 
 if __name__ == '__main__':
@@ -101,6 +102,13 @@ if __name__ == '__main__':
                         help="Don't build latest executable")
     parser.add_argument('--no-kernel-loopback', action='store_true', default=False,
                         help="Do not connect user kernel data ports in loopback")
+    parser.add_argument('--oversubscribe', action='store_true', default=False,
+                        help='Oversubscribe the number of available slots/processors')
+    parser.add_argument('--hostfile', type=Path, default=None,
+                        help='Hostfile, via "slots=N" clauses (N defaults to number of \
+                              processor cores if not provided)')
     args = parser.parse_args()
+    if args.hostfile:
+        assert args.hostfile.is_file(), 'File provided as hostfile does not exist.'
     main(args.nranks, args.log_level, args.start_port, args.udp,
-        not args.no_kernel_loopback, not args.no_build)
+        not args.no_kernel_loopback, not args.no_build, args.oversubscribe, args.hostfile)
